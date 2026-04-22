@@ -1,0 +1,21 @@
+services:
+  aion-db:
+    image: mysql:8.4
+    container_name: aion-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: "%"
+    command:
+      - "--character-set-server=utf8mb4"
+      - "--collation-server=utf8mb4_unicode_ci"
+    volumes:
+      - aion-db-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+      - ./login-server/sql:/aion-sql/login-server:ro
+      - ./game-server/sql:/aion-sql/game-server:ro
+      - ./chat-server/sql:/aion-sql/chat-server:ro
+
+volumes:
+  aion-db-data:

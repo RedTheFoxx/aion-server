@@ -1,3 +1,11 @@
+name: aion-server
+
+x-aion-server-common: &aion-server-common
+  image: aion-server-runtime:latest
+  build:
+    context: ./docker/aion-server
+  restart: unless-stopped
+
 services:
   aion-db:
     image: mysql:8.4
@@ -10,12 +18,80 @@ services:
     command:
       - "--character-set-server=utf8mb4"
       - "--collation-server=utf8mb4_unicode_ci"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --protocol=tcp -h 127.0.0.1 -uroot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     volumes:
       - aion-db-data:/var/lib/mysql
       - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
       - ./login-server/sql:/aion-sql/login-server:ro
       - ./game-server/sql:/aion-sql/game-server:ro
       - ./chat-server/sql:/aion-sql/chat-server:ro
+
+  aion-db-seed:
+    image: mysql:8.4
+    depends_on:
+      aion-db:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - mysql -h aion-db -uroot < /aion-db-seed/10-register-gameserver.sql
+    volumes:
+      - ./docker/mysql/seed:/aion-db-seed:ro
+    restart: "no"
+
+  aion-login-server:
+    <<: *aion-server-common
+    container_name: aion-login-server
+    depends_on:
+      aion-db-seed:
+        condition: service_completed_successfully
+    environment:
+      AION_SERVER_DIR: /opt/aion/login-server
+      AION_WAIT_FOR: aion-db:3306
+    ports:
+      - "2106:2106"
+    volumes:
+      - ./compiled/login-server:/opt/aion/login-server
+      - ./docker/aion-server/config/myls.properties:/opt/aion/login-server/config/myls.properties:ro
+
+  aion-chat-server:
+    <<: *aion-server-common
+    container_name: aion-chat-server
+    depends_on:
+      aion-db:
+        condition: service_healthy
+    environment:
+      AION_SERVER_DIR: /opt/aion/chat-server
+      AION_WAIT_FOR: aion-db:3306
+    ports:
+      - "10241:10241"
+    volumes:
+      - ./compiled/chat-server:/opt/aion/chat-server
+      - ./docker/aion-server/config/mycs.properties:/opt/aion/chat-server/config/mycs.properties:ro
+
+  aion-game-server:
+    <<: *aion-server-common
+    container_name: aion-game-server
+    depends_on:
+      aion-db-seed:
+        condition: service_completed_successfully
+      aion-login-server:
+        condition: service_started
+      aion-chat-server:
+        condition: service_started
+    environment:
+      AION_SERVER_DIR: /opt/aion/game-server
+      AION_WAIT_FOR: aion-db:3306,aion-login-server:9014,aion-chat-server:9021
+    ports:
+      - "7777:7777"
+    volumes:
+      - ./compiled/game-server:/opt/aion/game-server
+      - ./docker/aion-server/config/mygs.properties:/opt/aion/game-server/config/mygs.properties:ro
 
 volumes:
   aion-db-data:
